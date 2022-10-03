@@ -1,0 +1,1102 @@
+/******************************************************************************
+ * Spine Runtimes License Agreement
+ * Last updated January 1, 2020. Replaces all prior versions.
+ *
+ * Copyright (c) 2013-2020, Esoteric Software LLC
+ *
+ * Integration of the Spine Runtimes into software or otherwise creating
+ * derivative works of the Spine Runtimes is permitted under the terms and
+ * conditions of Section 2 of the Spine Editor License Agreement:
+ * http://esotericsoftware.com/spine-editor-license
+ *
+ * Otherwise, it is permitted to integrate the Spine Runtimes into software
+ * or otherwise create derivative works of the Spine Runtimes (collectively,
+ * "Products"), provided that each user of the Products must obtain their own
+ * Spine Editor license and redistribution of the Products in any form must
+ * include this license and copyright notice.
+ *
+ * THE SPINE RUNTIMES ARE PROVIDED BY ESOTERIC SOFTWARE LLC "AS IS" AND ANY
+ * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+ * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ * DISCLAIMED. IN NO EVENT SHALL ESOTERIC SOFTWARE LLC BE LIABLE FOR ANY
+ * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES,
+ * BUSINESS INTERRUPTION, OR LOSS OF USE, DATA, OR PROFITS) HOWEVER CAUSED AND
+ * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
+ * THE SPINE RUNTIMES, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ *****************************************************************************/
+
+package com.esotericsoftware.spine;
+
+import static com.badlogic.gdx.math.Interpolation.*;
+import static com.badlogic.gdx.scenes.scene2d.actions.Actions.*;
+
+import java.io.File;
+import java.lang.Thread.UncaughtExceptionHandler;
+
+import com.badlogic.gdx.ApplicationAdapter;
+import com.badlogic.gdx.Gdx;
+import com.badlogic.gdx.InputAdapter;
+import com.badlogic.gdx.InputMultiplexer;
+import com.badlogic.gdx.Preferences;
+import com.badlogic.gdx.backends.lwjgl.LwjglApplication;
+import com.badlogic.gdx.backends.lwjgl.LwjglApplicationConfiguration;
+import com.badlogic.gdx.files.FileHandle;
+import com.badlogic.gdx.graphics.Color;
+import com.badlogic.gdx.graphics.GL20;
+import com.badlogic.gdx.graphics.OrthographicCamera;
+import com.badlogic.gdx.graphics.Pixmap;
+import com.badlogic.gdx.graphics.Pixmap.Format;
+import com.badlogic.gdx.graphics.Texture;
+import com.badlogic.gdx.graphics.Texture.TextureFilter;
+import com.badlogic.gdx.graphics.g2d.TextureAtlas;
+import com.badlogic.gdx.graphics.g2d.TextureAtlas.AtlasRegion;
+import com.badlogic.gdx.graphics.g2d.TextureAtlas.TextureAtlasData;
+import com.badlogic.gdx.graphics.g2d.TextureAtlas.TextureAtlasData.Page;
+import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
+import com.badlogic.gdx.graphics.glutils.ShapeRenderer.ShapeType;
+import com.badlogic.gdx.math.MathUtils;
+import com.badlogic.gdx.scenes.scene2d.Actor;
+import com.badlogic.gdx.scenes.scene2d.InputEvent;
+import com.badlogic.gdx.scenes.scene2d.InputListener;
+import com.badlogic.gdx.scenes.scene2d.Stage;
+import com.badlogic.gdx.scenes.scene2d.Touchable;
+import com.badlogic.gdx.scenes.scene2d.ui.ButtonGroup;
+import com.badlogic.gdx.scenes.scene2d.ui.CheckBox;
+import com.badlogic.gdx.scenes.scene2d.ui.Image;
+import com.badlogic.gdx.scenes.scene2d.ui.Label;
+import com.badlogic.gdx.scenes.scene2d.ui.List;
+import com.badlogic.gdx.scenes.scene2d.ui.ScrollPane;
+import com.badlogic.gdx.scenes.scene2d.ui.Slider;
+import com.badlogic.gdx.scenes.scene2d.ui.Table;
+import com.badlogic.gdx.scenes.scene2d.ui.TextButton;
+import com.badlogic.gdx.scenes.scene2d.ui.WidgetGroup;
+import com.badlogic.gdx.scenes.scene2d.ui.Window;
+import com.badlogic.gdx.scenes.scene2d.utils.ChangeListener;
+import com.badlogic.gdx.scenes.scene2d.utils.ClickListener;
+import com.badlogic.gdx.utils.Align;
+import com.badlogic.gdx.utils.Array;
+import com.badlogic.gdx.utils.StringBuilder;
+import com.badlogic.gdx.utils.viewport.ScreenViewport;
+
+import com.esotericsoftware.spine.Animation.MixBlend;
+import com.esotericsoftware.spine.AnimationState.AnimationStateAdapter;
+import com.esotericsoftware.spine.AnimationState.TrackEntry;
+import com.esotericsoftware.spine.utils.TwoColorPolygonBatch;
+
+import java.awt.FileDialog;
+import java.awt.Frame;
+import java.awt.Toolkit;
+
+public class SkeletonViewer extends ApplicationAdapter {
+	static final float checkModifiedInterval = 0.250f;
+	static final float reloadDelay = 1;
+	static float uiScale = 1;
+	static String[] dataSuffixes = {".json", ".skel"};
+	static String[] atlasSuffixes = {".atlas", "-pro.atlas", "-ess.atlas"};
+	static String[] extraSuffixes = {"", ".txt", ".bytes"};
+	static String[] args;
+
+	UI ui;
+
+	OrthographicCamera camera;
+	TwoColorPolygonBatch batch;
+	TextureAtlas atlas;
+	SkeletonRenderer renderer;
+	SkeletonRendererDebug debugRenderer;
+	SkeletonData skeletonData;
+	Skeleton skeleton;
+	AnimationState state;
+	FileHandle skeletonFile;
+	long skeletonModified, atlasModified;
+	float lastModifiedCheck, reloadTimer;
+	StringBuilder status = new StringBuilder();
+	Preferences prefs;
+
+	public void create () {
+		Thread.setDefaultUncaughtExceptionHandler(new UncaughtExceptionHandler() {
+			public void uncaughtException (Thread thread, Throwable ex) {
+				ex.printStackTrace();
+				Runtime.getRuntime().halt(0); // Prevent Swing from keeping JVM alive.
+			}
+		});
+
+		prefs = Gdx.app.getPreferences("spine-skeletonviewer");
+		ui = new UI();
+		batch = new TwoColorPolygonBatch(3100);
+		camera = new OrthographicCamera();
+		renderer = new SkeletonRenderer();
+		debugRenderer = new SkeletonRendererDebug();
+		resetCameraPosition();
+		ui.loadPrefs();
+
+		if (args.length == 0) {
+			loadSkeleton(
+				Gdx.files.internal(Gdx.app.getPreferences("spine-skeletonviewer").getString("lastFile", "spineboy/spineboy.json")));
+		} else {
+			loadSkeleton(Gdx.files.internal(args[0]));
+		}
+
+		ui.loadPrefs();
+		ui.prefsLoaded = true;
+	}
+
+	FileHandle atlasFile (FileHandle skeletonFile) {
+		String baseName = skeletonFile.name();
+		for (String extraSuffix : extraSuffixes) {
+			for (String dataSuffix : dataSuffixes) {
+				String suffix = dataSuffix + extraSuffix;
+				if (baseName.endsWith(suffix)) {
+					FileHandle file = atlasFile(skeletonFile, baseName.substring(0, baseName.length() - suffix.length()));
+					if (file != null) return file;
+				}
+			}
+		}
+		return atlasFile(skeletonFile, baseName);
+	}
+
+	private FileHandle atlasFile (FileHandle skeletonFile, String baseName) {
+		for (String extraSuffix : extraSuffixes) {
+			for (String suffix : atlasSuffixes) {
+				FileHandle file = skeletonFile.sibling(baseName + suffix + extraSuffix);
+				if (file.exists()) return file;
+			}
+		}
+		return null;
+	}
+
+	void loadSkeleton (final FileHandle skeletonFile) {
+		if (skeletonFile == null) return;
+
+		FileHandle atlasFile = atlasFile(skeletonFile);
+		try {
+			// Setup a texture atlas that uses a white image for images not found in the atlas.
+			Pixmap pixmap = new Pixmap(32, 32, Format.RGBA8888);
+			pixmap.setColor(new Color(1, 1, 1, 0.33f));
+			pixmap.fill();
+			final AtlasRegion fake = new AtlasRegion(new Texture(pixmap), 0, 0, 32, 32);
+			pixmap.dispose();
+
+			TextureAtlasData atlasData = null;
+			if (atlasFile != null) {
+				atlasData = new TextureAtlasData(atlasFile, atlasFile.parent(), false);
+				boolean linear = true;
+				for (int i = 0, n = atlasData.getPages().size; i < n; i++) {
+					Page page = atlasData.getPages().get(i);
+					if (page.minFilter != TextureFilter.Linear || page.magFilter != TextureFilter.Linear) {
+						linear = false;
+						break;
+					}
+				}
+				ui.linearCheckbox.setChecked(linear);
+			}
+
+			atlas = new TextureAtlas(atlasData) {
+				public AtlasRegion findRegion (String name) {
+					AtlasRegion region = super.findRegion(name);
+					if (region == null) {
+						// Look for separate image file.
+						FileHandle file = skeletonFile.sibling(name + ".png");
+						if (file.exists()) {
+							Texture texture = new Texture(file);
+							texture.setFilter(TextureFilter.Linear, TextureFilter.Linear);
+							region = new AtlasRegion(texture, 0, 0, texture.getWidth(), texture.getHeight());
+							region.name = name;
+						}
+					}
+					return region != null ? region : fake;
+				}
+			};
+
+			// Load skeleton data.
+			String extension = skeletonFile.extension();
+			if (extension.equalsIgnoreCase("json") || extension.equalsIgnoreCase("txt")) {
+				SkeletonJson json = new SkeletonJson(atlas);
+				json.setScale(ui.loadScaleSlider.getValue());
+				skeletonData = json.readSkeletonData(skeletonFile);
+			} else {
+				SkeletonBinary binary = new SkeletonBinary(atlas);
+				binary.setScale(ui.loadScaleSlider.getValue());
+				skeletonData = binary.readSkeletonData(skeletonFile);
+				if (skeletonData.getBones().size == 0) throw new Exception("No bones in skeleton data.");
+			}
+		} catch (Throwable ex) {
+			ex.printStackTrace();
+			ui.toast("Error loading skeleton: " + skeletonFile.name());
+			lastModifiedCheck = 5;
+			return;
+		}
+
+		skeleton = new Skeleton(skeletonData);
+		skeleton.updateWorldTransform();
+		skeleton.setToSetupPose();
+		skeleton = new Skeleton(skeleton); // Tests copy constructors.
+		skeleton.updateWorldTransform();
+
+		state = new AnimationState(new AnimationStateData(skeletonData));
+		state.addListener(new AnimationStateAdapter() {
+
+			public void event (TrackEntry entry, Event event) {
+				ui.toast(event.getData().getName());
+			}
+		});
+
+		this.skeletonFile = skeletonFile;
+		skeletonModified = skeletonFile.lastModified();
+		atlasModified = atlasFile == null ? 0 : atlasFile.lastModified();
+		lastModifiedCheck = checkModifiedInterval;
+		prefs.putString("lastFile", skeletonFile.path());
+		prefs.flush();
+
+		// Populate UI.
+
+		ui.window.getTitleLabel().setText(skeletonFile.name());
+		{
+
+			Array<String> items = new Array();
+			for (Skin skin : skeletonData.getSkins())
+				items.add(skin.getName());
+			ui.skinList.setItems(items);
+		}
+		{
+			Array<String> items = new Array();
+			for (Animation animation : skeletonData.getAnimations())
+				items.add(animation.getName());
+			ui.animationList.setItems(items);
+		}
+		ui.trackButtons.getButtons().first().setChecked(true);
+
+		// Configure skeleton from UI.
+
+		if (ui.skinList.getSelected() != null) skeleton.setSkin(ui.skinList.getSelected());
+		setAnimation();
+
+		// ui.animationList.clearListeners();
+		// state.setAnimation(0, "walk", true);
+	}
+
+	void setAnimation () {
+		if (ui.animationList.getSelected() == null) return;
+		int track = ui.trackButtons.getCheckedIndex();
+		TrackEntry current = state.getCurrent(track);
+		TrackEntry entry;
+		if (current == null) {
+			state.setEmptyAnimation(track, 0);
+			entry = state.addAnimation(track, ui.animationList.getSelected(), ui.loopCheckbox.isChecked(), 0);
+			entry.setMixDuration(ui.mixSlider.getValue());
+		} else {
+			entry = state.setAnimation(track, ui.animationList.getSelected(), ui.loopCheckbox.isChecked());
+		}
+		entry.setMixBlend(ui.addCheckbox.isChecked() ? MixBlend.add : MixBlend.replace);
+		entry.setAlpha(ui.alphaSlider.getValue());
+	}
+
+	public void render () {
+		Gdx.gl.glClearColor(112 / 255f, 111 / 255f, 118 / 255f, 1);
+		Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
+
+		float delta = Gdx.graphics.getDeltaTime();
+		camera.update();
+		batch.getProjectionMatrix().set(camera.combined);
+		debugRenderer.getShapeRenderer().setProjectionMatrix(camera.combined);
+
+		// Draw skeleton origin lines.
+		ShapeRenderer shapes = debugRenderer.getShapeRenderer();
+		if (state != null) {
+			shapes.setColor(Color.DARK_GRAY);
+			shapes.begin(ShapeType.Line);
+			shapes.line(0, -99999, 0, 99999);
+			shapes.line(-99999, 0, 99999, 0);
+			shapes.end();
+		}
+
+		if (skeleton != null) {
+			// Reload if skeleton file was modified.
+			if (reloadTimer <= 0) {
+				lastModifiedCheck -= delta;
+				if (lastModifiedCheck < 0) {
+					lastModifiedCheck = checkModifiedInterval;
+					long time = skeletonFile.lastModified();
+					if (time != 0 && skeletonModified != time) reloadTimer = reloadDelay;
+					FileHandle atlasFile = atlasFile(skeletonFile);
+					time = atlasFile == null ? 0 : atlasFile.lastModified();
+					if (time != 0 && atlasModified != time) reloadTimer = reloadDelay;
+				}
+			} else {
+				reloadTimer -= delta;
+				if (reloadTimer <= 0) {
+					loadSkeleton(skeletonFile);
+					ui.toast("Reloaded.");
+				}
+			}
+
+			// Pose and render skeleton.
+			state.getData().setDefaultMix(ui.mixSlider.getValue());
+			renderer.setPremultipliedAlpha(ui.premultipliedCheckbox.isChecked());
+			batch.setPremultipliedAlpha(ui.premultipliedCheckbox.isChecked());
+
+			float scaleX = ui.xScaleSlider.getValue(), scaleY = ui.yScaleSlider.getValue();
+			if (skeleton.scaleX == 0) skeleton.scaleX = 0.01f;
+			if (skeleton.scaleY == 0) skeleton.scaleY = 0.01f;
+			skeleton.setScale(scaleX, scaleY);
+
+			delta = Math.min(delta, 0.032f) * ui.speedSlider.getValue();
+			skeleton.update(delta);
+			state.update(delta);
+			state.apply(skeleton);
+			skeleton.updateWorldTransform();
+
+			batch.begin();
+			renderer.draw(batch, skeleton);
+			batch.end();
+
+			debugRenderer.setBones(ui.debugBonesCheckbox.isChecked());
+			debugRenderer.setRegionAttachments(ui.debugRegionsCheckbox.isChecked());
+			debugRenderer.setBoundingBoxes(ui.debugBoundingBoxesCheckbox.isChecked());
+			debugRenderer.setMeshHull(ui.debugMeshHullCheckbox.isChecked());
+			debugRenderer.setMeshTriangles(ui.debugMeshTrianglesCheckbox.isChecked());
+			debugRenderer.setPaths(ui.debugPathsCheckbox.isChecked());
+			debugRenderer.setPoints(ui.debugPointsCheckbox.isChecked());
+			debugRenderer.setClipping(ui.debugClippingCheckbox.isChecked());
+			debugRenderer.draw(skeleton);
+		}
+
+		if (state != null) {
+			// AnimationState status.
+			status.setLength(0);
+			for (int i = state.getTracks().size - 1; i >= 0; i--) {
+				TrackEntry entry = state.getTracks().get(i);
+				if (entry == null) continue;
+				status.append(i);
+				status.append(": [LIGHT_GRAY]");
+				status(entry);
+				status.append("[WHITE]");
+				status.append(entry.animation.name);
+				status.append('\n');
+			}
+			ui.statusLabel.setText(status);
+		}
+
+		// Render UI.
+		ui.render();
+
+		// Draw indicator lines for animation and mix times.
+		if (state != null) {
+			TrackEntry entry = state.getCurrent(0);
+			if (entry != null) {
+				shapes.getProjectionMatrix().setToOrtho2D(0, 0, Gdx.graphics.getWidth(), Gdx.graphics.getHeight());
+				shapes.updateMatrices();
+				shapes.begin(ShapeType.Line);
+
+				float percent = entry.getAnimationTime() / entry.getAnimationEnd();
+				float x = ui.window.getRight() * uiScale + (Gdx.graphics.getWidth() - ui.window.getRight() * uiScale) * percent;
+				shapes.setColor(Color.CYAN);
+				shapes.line(x, 0, x, 12);
+
+				percent = entry.getMixDuration() == 0 ? 1 : Math.min(1, entry.getMixTime() / entry.getMixDuration());
+				x = ui.window.getRight() * uiScale + (Gdx.graphics.getWidth() - ui.window.getRight() * uiScale) * percent;
+				shapes.setColor(Color.RED);
+				shapes.line(x, 0, x, 12);
+
+				shapes.end();
+			}
+		}
+	}
+
+	void status (TrackEntry entry) {
+		TrackEntry from = entry.mixingFrom;
+		if (from == null) return;
+		status(from);
+		status.append(from.animation.name);
+		status.append(' ');
+		status.append(Math.min(100, (int)(entry.mixTime / entry.mixDuration * 100)));
+		status.append("% -> ");
+	}
+
+	void resetCameraPosition () {
+		camera.position.x = -ui.window.getWidth() / 2 * uiScale;
+		camera.position.y = Gdx.graphics.getHeight() / 4;
+	}
+
+	public void resize (int width, int height) {
+		float x = camera.position.x, y = camera.position.y;
+		camera.setToOrtho(false);
+		camera.position.set(x, y, 0);
+		((ScreenViewport)ui.stage.getViewport()).setUnitsPerPixel(1 / uiScale);
+		ui.stage.getViewport().update(width, height, true);
+		if (!ui.minimizeButton.isChecked()) ui.window.setHeight(height / uiScale + 8);
+	}
+
+	class UI {
+		boolean prefsLoaded;
+
+		Stage stage = new Stage(new ScreenViewport());
+		com.badlogic.gdx.scenes.scene2d.ui.Skin skin = new com.badlogic.gdx.scenes.scene2d.ui.Skin(
+			Gdx.files.internal("skin/skin.json"));
+
+		Window window = new Window("Skeleton", skin);
+		Table root = new Table(skin);
+		TextButton openButton = new TextButton("Open", skin);
+		TextButton minimizeButton = new TextButton("-", skin);
+
+		Slider loadScaleSlider = new Slider(0.1f, 3, 0.01f, false, skin);
+		Label loadScaleLabel = new Label("100%", skin);
+		TextButton loadScaleResetButton = new TextButton("Reload", skin);
+
+		Slider zoomSlider = new Slider(0.01f, 10, 0.01f, false, skin);
+		Label zoomLabel = new Label("100%", skin);
+		TextButton zoomResetButton = new TextButton("Reset", skin);
+
+		Slider xScaleSlider = new Slider(-2, 2, 0.01f, false, skin);
+		Label xScaleLabel = new Label("100%", skin);
+		TextButton xScaleResetButton = new TextButton("Reset", skin);
+
+		Slider yScaleSlider = new Slider(-2, 2, 0.01f, false, skin);
+		Label yScaleLabel = new Label("100%", skin);
+		TextButton yScaleResetButton = new TextButton("Reset", skin);
+
+		CheckBox debugBonesCheckbox = new CheckBox("Bones", skin);
+		CheckBox debugRegionsCheckbox = new CheckBox("Regions", skin);
+		CheckBox debugBoundingBoxesCheckbox = new CheckBox("Bounds", skin);
+		CheckBox debugMeshHullCheckbox = new CheckBox("Mesh hull", skin);
+		CheckBox debugMeshTrianglesCheckbox = new CheckBox("Triangles", skin);
+		CheckBox debugPathsCheckbox = new CheckBox("Paths", skin);
+		CheckBox debugPointsCheckbox = new CheckBox("Points", skin);
+		CheckBox debugClippingCheckbox = new CheckBox("Clipping", skin);
+
+		CheckBox premultipliedCheckbox = new CheckBox("Premultiplied", skin);
+
+		CheckBox linearCheckbox = new CheckBox("Linear", skin);
+
+		TextButton bonesSetupPoseButton = new TextButton("Bones", skin);
+		TextButton slotsSetupPoseButton = new TextButton("Slots", skin);
+		TextButton setupPoseButton = new TextButton("Both", skin);
+
+		List<String> skinList = new List(skin);
+		ScrollPane skinScroll = new ScrollPane(skinList, skin, "bg");
+
+		ButtonGroup<TextButton> trackButtons = new ButtonGroup();
+		CheckBox loopCheckbox = new CheckBox("Loop", skin);
+		CheckBox addCheckbox = new CheckBox("Add", skin);
+
+		Slider alphaSlider = new Slider(0, 1, 0.01f, false, skin);
+		Label alphaLabel = new Label("100%", skin);
+
+		List<String> animationList = new List(skin);
+		ScrollPane animationScroll = new ScrollPane(animationList, skin, "bg");
+
+		Slider speedSlider = new Slider(0, 3, 0.01f, false, skin);
+		Label speedLabel = new Label("1.0x", skin);
+		TextButton speedResetButton = new TextButton("Reset", skin);
+
+		Slider mixSlider = new Slider(0, 4, 0.01f, false, skin);
+		Label mixLabel = new Label("0.3s", skin);
+
+		Label statusLabel = new Label("", skin);
+		WidgetGroup toasts = new WidgetGroup();
+
+		UI () {
+			initialize();
+			layout();
+			events();
+		}
+
+		void initialize () {
+			skin.getFont("default").getData().markupEnabled = true;
+
+			for (int i = 0; i < 6; i++)
+				trackButtons.add(new TextButton(i + "", skin, "toggle"));
+
+			premultipliedCheckbox.setChecked(true);
+
+			linearCheckbox.setChecked(true);
+
+			loopCheckbox.setChecked(true);
+
+			loadScaleSlider.setValue(1);
+			loadScaleSlider.setSnapToValues(new float[] {0.5f, 1, 1.5f, 2, 2.5f}, 0.09f);
+
+			zoomSlider.setValue(1);
+			zoomSlider.setSnapToValues(new float[] {1, 2}, 0.30f);
+
+			xScaleSlider.setValue(1);
+			xScaleSlider.setSnapToValues(new float[] {-1.5f, -1, -0.5f, 0.5f, 1, 1.5f}, 0.12f);
+
+			yScaleSlider.setValue(1);
+			yScaleSlider.setSnapToValues(new float[] {-1.5f, -1, -0.5f, 0.5f, 1, 1.5f}, 0.12f);
+
+			skinList.getSelection().setRequired(false);
+			skinList.getSelection().setToggle(true);
+
+			animationList.getSelection().setRequired(false);
+			animationList.getSelection().setToggle(true);
+
+			mixSlider.setValue(0.3f);
+			mixSlider.setSnapToValues(new float[] {1, 1.5f, 2, 2.5f, 3, 3.5f}, 0.12f);
+
+			speedSlider.setValue(1);
+			speedSlider.setSnapToValues(new float[] {0.5f, 0.75f, 1, 1.25f, 1.5f, 2, 2.5f}, 0.09f);
+
+			alphaSlider.setValue(1);
+			alphaSlider.setDisabled(true);
+
+			addCheckbox.setDisabled(true);
+
+			window.setMovable(false);
+			window.setResizable(false);
+			window.setKeepWithinStage(false);
+			window.setX(-3);
+			window.setY(-2);
+
+			window.getTitleLabel().setColor(new Color(0xc1ffffff));
+			window.getTitleTable().add(openButton).space(3);
+			window.getTitleTable().add(minimizeButton).width(20);
+
+			skinScroll.setFadeScrollBars(false);
+
+			animationScroll.setFadeScrollBars(false);
+		}
+
+		void layout () {
+			float resetWidth = loadScaleResetButton.getPrefWidth();
+
+			root.defaults().space(6);
+			root.columnDefaults(0).top().right().padTop(3);
+			root.columnDefaults(1).left();
+			root.add("Load scale:");
+			{
+				Table table = table();
+				table.add(loadScaleLabel).width(29);
+				table.add(loadScaleSlider).growX();
+				table.add(loadScaleResetButton).width(resetWidth);
+				root.add(table).fill().row();
+			}
+			root.add("Zoom:");
+			{
+				Table table = table();
+				table.add(zoomLabel).width(29);
+				table.add(zoomSlider).growX();
+				table.add(zoomResetButton).width(resetWidth);
+				root.add(table).fill().row();
+			}
+			root.add("Scale X:");
+			{
+				Table table = table();
+				table.add(xScaleLabel).width(29);
+				table.add(xScaleSlider).growX();
+				table.add(xScaleResetButton).width(resetWidth);
+				root.add(table).fill().row();
+			}
+			root.add("Scale Y:");
+			{
+				Table table = table();
+				table.add(yScaleLabel).width(29);
+				table.add(yScaleSlider).growX();
+				table.add(yScaleResetButton).width(resetWidth);
+				root.add(table).fill().row();
+			}
+			root.add("Debug:");
+			root.add(table(debugBonesCheckbox, debugRegionsCheckbox, debugBoundingBoxesCheckbox)).row();
+			root.add();
+			root.add(table(debugPathsCheckbox, debugPointsCheckbox, debugClippingCheckbox)).row();
+			root.add();
+			root.add(table(debugMeshHullCheckbox, debugMeshTrianglesCheckbox)).row();
+			root.add("Atlas alpha:");
+			{
+				Table table = table();
+				table.add(premultipliedCheckbox);
+				table.add("Filtering:").growX().getActor().setAlignment(Align.right);
+				table.add(linearCheckbox);
+				root.add(table).fill().row();
+			}
+
+			root.add(new Image(skin.newDrawable("white", new Color(0x4e4e4eff)))).height(1).fillX().colspan(2).pad(-3, 0, 1, 0)
+				.row();
+
+			root.add("Setup pose:");
+			root.add(table(bonesSetupPoseButton, slotsSetupPoseButton, setupPoseButton)).row();
+			root.add("Skin:");
+			root.add(skinScroll).grow().minHeight(64).row();
+
+			root.add(new Image(skin.newDrawable("white", new Color(0x4e4e4eff)))).height(1).fillX().colspan(2).pad(1, 0, 1, 0).row();
+
+			root.add("Track:");
+			{
+				Table table = table();
+				for (TextButton button : trackButtons.getButtons())
+					table.add(button);
+				table.add(loopCheckbox);
+				table.add(addCheckbox);
+				root.add(table).row();
+			}
+			root.add("Entry alpha:");
+			{
+				Table table = table();
+				table.add(alphaLabel).width(29);
+				table.add(alphaSlider).growX();
+				root.add(table).fill().row();
+			}
+			root.add("Animation:");
+			root.add(animationScroll).grow().minHeight(64).row();
+			root.add("Speed:");
+			{
+				Table table = table();
+				table.add(speedLabel).width(29);
+				table.add(speedSlider).growX();
+				table.add(speedResetButton);
+				root.add(table).fill().row();
+			}
+			root.add("Default mix:");
+			{
+				Table table = table();
+				table.add(mixLabel).width(29);
+				table.add(mixSlider).growX();
+				root.add(table).fill().row();
+			}
+
+			window.add(root).grow();
+			window.pack();
+			stage.addActor(window);
+
+			stage.addActor(statusLabel);
+
+			{
+				Table table = new Table();
+				table.setFillParent(true);
+				table.setTouchable(Touchable.disabled);
+				stage.addActor(table);
+				table.pad(10, 10, 22, 10).bottom().right();
+				table.add(toasts);
+			}
+
+			{
+				Table table = new Table();
+				table.setFillParent(true);
+				table.setTouchable(Touchable.disabled);
+				stage.addActor(table);
+				table.pad(10).top().right();
+				table.defaults().right();
+				table.add(new Label("", skin, "default", Color.LIGHT_GRAY)); // Version.
+			}
+		}
+
+		void events () {
+			window.addListener(new InputListener() {
+				public boolean touchDown (InputEvent event, float x, float y, int pointer, int button) {
+					event.cancel();
+					return true;
+				}
+			});
+
+			openButton.addListener(new ChangeListener() {
+				public void changed (ChangeEvent event, Actor actor) {
+					FileDialog fileDialog = new FileDialog((Frame)null, "Choose skeleton file");
+					fileDialog.setMode(FileDialog.LOAD);
+					fileDialog.setVisible(true);
+					String name = fileDialog.getFile();
+					String dir = fileDialog.getDirectory();
+					if (name == null || dir == null) return;
+					loadSkeleton(new FileHandle(new File(dir, name).getAbsolutePath()));
+					ui.toast("Loaded.");
+				}
+			});
+
+			setupPoseButton.addListener(new ChangeListener() {
+				public void changed (ChangeEvent event, Actor actor) {
+					if (skeleton != null) skeleton.setToSetupPose();
+				}
+			});
+			bonesSetupPoseButton.addListener(new ChangeListener() {
+				public void changed (ChangeEvent event, Actor actor) {
+					if (skeleton != null) skeleton.setBonesToSetupPose();
+				}
+			});
+			slotsSetupPoseButton.addListener(new ChangeListener() {
+				public void changed (ChangeEvent event, Actor actor) {
+					if (skeleton != null) skeleton.setSlotsToSetupPose();
+				}
+			});
+
+			minimizeButton.addListener(new ClickListener() {
+				public boolean touchDown (InputEvent event, float x, float y, int pointer, int button) {
+					event.cancel();
+					return super.touchDown(event, x, y, pointer, button);
+				}
+
+				public void clicked (InputEvent event, float x, float y) {
+					if (minimizeButton.isChecked()) {
+						window.getCells().get(0).setActor(null);
+						window.setHeight(37);
+						minimizeButton.setText("+");
+					} else {
+						window.getCells().get(0).setActor(root);
+						window.setHeight(Gdx.graphics.getHeight() / uiScale + 8);
+						minimizeButton.setText("-");
+					}
+				}
+			});
+
+			loadScaleSlider.addListener(new ChangeListener() {
+				public void changed (ChangeEvent event, Actor actor) {
+					loadScaleLabel.setText(Integer.toString((int)(loadScaleSlider.getValue() * 100)) + "%");
+					if (!loadScaleSlider.isDragging()) {
+						loadSkeleton(skeletonFile);
+						ui.toast("Reloaded.");
+					}
+					loadScaleResetButton.setText(loadScaleSlider.getValue() == 1 ? "Reload" : "Reset");
+				}
+			});
+			loadScaleResetButton.addListener(new ChangeListener() {
+				public void changed (ChangeEvent event, Actor actor) {
+					resetCameraPosition();
+					if (loadScaleSlider.getValue() == 1) {
+						loadSkeleton(skeletonFile);
+						ui.toast("Reloaded.");
+					} else
+						loadScaleSlider.setValue(1);
+					loadScaleResetButton.setText("Reload");
+				}
+			});
+
+			zoomSlider.addListener(new ChangeListener() {
+				public void changed (ChangeEvent event, Actor actor) {
+					zoomLabel.setText(Integer.toString((int)(zoomSlider.getValue() * 100)) + "%");
+					float newZoom = 1 / zoomSlider.getValue();
+					camera.position.x -= window.getWidth() / 2 * (newZoom - camera.zoom);
+					camera.zoom = newZoom;
+				}
+			});
+			zoomResetButton.addListener(new ChangeListener() {
+				public void changed (ChangeEvent event, Actor actor) {
+					resetCameraPosition();
+					float x = camera.position.x;
+					zoomSlider.setValue(1);
+					camera.position.x = x;
+				}
+			});
+
+			xScaleSlider.addListener(new ChangeListener() {
+				public void changed (ChangeEvent event, Actor actor) {
+					if (xScaleSlider.getValue() == 0) xScaleSlider.setValue(0.01f);
+					xScaleLabel.setText(Integer.toString((int)(xScaleSlider.getValue() * 100)) + "%");
+				}
+			});
+			xScaleResetButton.addListener(new ChangeListener() {
+				public void changed (ChangeEvent event, Actor actor) {
+					xScaleSlider.setValue(1);
+				}
+			});
+
+			yScaleSlider.addListener(new ChangeListener() {
+				public void changed (ChangeEvent event, Actor actor) {
+					if (yScaleSlider.getValue() == 0) yScaleSlider.setValue(0.01f);
+					yScaleLabel.setText(Integer.toString((int)(yScaleSlider.getValue() * 100)) + "%");
+				}
+			});
+			yScaleResetButton.addListener(new ChangeListener() {
+				public void changed (ChangeEvent event, Actor actor) {
+					yScaleSlider.setValue(1);
+				}
+			});
+
+			speedSlider.addListener(new ChangeListener() {
+				public void changed (ChangeEvent event, Actor actor) {
+					speedLabel.setText(Float.toString((int)(speedSlider.getValue() * 100) / 100f) + "x");
+				}
+			});
+			speedResetButton.addListener(new ChangeListener() {
+				public void changed (ChangeEvent event, Actor actor) {
+					speedSlider.setValue(1);
+				}
+			});
+
+			alphaSlider.addListener(new ChangeListener() {
+				public void changed (ChangeEvent event, Actor actor) {
+					alphaLabel.setText(Integer.toString((int)(alphaSlider.getValue() * 100)) + "%");
+					int track = trackButtons.getCheckedIndex();
+					if (track > 0) {
+						TrackEntry current = state.getCurrent(track);
+						if (current != null) {
+							current.setAlpha(alphaSlider.getValue());
+							current.resetRotationDirections();
+						}
+					}
+				}
+			});
+
+			mixSlider.addListener(new ChangeListener() {
+				public void changed (ChangeEvent event, Actor actor) {
+					mixLabel.setText(Float.toString((int)(mixSlider.getValue() * 100) / 100f) + "s");
+					if (state != null) state.getData().setDefaultMix(mixSlider.getValue());
+				}
+			});
+
+			InputListener scrollFocusListener = new InputListener() {
+				public void enter (InputEvent event, float x, float y, int pointer, Actor fromActor) {
+					if (pointer == -1) stage.setScrollFocus(event.getListenerActor());
+				}
+
+				public void exit (InputEvent event, float x, float y, int pointer, Actor toActor) {
+					if (pointer == -1 && stage.getScrollFocus() == event.getListenerActor()) stage.setScrollFocus(null);
+				}
+			};
+
+			animationList.addListener(new ChangeListener() {
+				public void changed (ChangeEvent event, Actor actor) {
+					if (state != null) {
+						String name = animationList.getSelected();
+						if (name == null)
+							state.setEmptyAnimation(trackButtons.getCheckedIndex(), mixSlider.getValue());
+						else
+							setAnimation();
+					}
+				}
+			});
+			animationScroll.addListener(scrollFocusListener);
+
+			loopCheckbox.addListener(new ChangeListener() {
+				public void changed (ChangeEvent event, Actor actor) {
+					setAnimation();
+				}
+			});
+
+			addCheckbox.addListener(new ChangeListener() {
+				public void changed (ChangeEvent event, Actor actor) {
+					setAnimation();
+				}
+			});
+
+			linearCheckbox.addListener(new ChangeListener() {
+				public void changed (ChangeEvent event, Actor actor) {
+					if (atlas == null) return;
+					TextureFilter filter = linearCheckbox.isChecked() ? TextureFilter.Linear : TextureFilter.Nearest;
+					for (Texture texture : atlas.getTextures())
+						texture.setFilter(filter, filter);
+				}
+			});
+
+			skinList.addListener(new ChangeListener() {
+				public void changed (ChangeEvent event, Actor actor) {
+					if (skeleton != null) {
+						String skinName = skinList.getSelected();
+						if (skinName == null)
+							skeleton.setSkin((Skin)null);
+						else
+							skeleton.setSkin(skinName);
+						skeleton.setSlotsToSetupPose();
+					}
+				}
+			});
+			skinScroll.addListener(scrollFocusListener);
+
+			ChangeListener trackButtonListener = new ChangeListener() {
+				public void changed (ChangeEvent event, Actor actor) {
+					int track = trackButtons.getCheckedIndex();
+					if (track == -1) return;
+					TrackEntry current = state.getCurrent(track);
+					animationList.getSelection().setProgrammaticChangeEvents(false);
+					animationList.setSelected(current == null ? null : current.animation.name);
+					animationList.getSelection().setProgrammaticChangeEvents(true);
+
+					alphaSlider.setDisabled(track == 0);
+					alphaSlider.setValue(current == null ? 1 : current.alpha);
+
+					addCheckbox.setDisabled(track == 0);
+
+					if (current != null) {
+						loopCheckbox.setChecked(current.getLoop());
+						addCheckbox.setChecked(current.getMixBlend() == MixBlend.add);
+					}
+				}
+			};
+			for (TextButton button : trackButtons.getButtons())
+				button.addListener(trackButtonListener);
+
+			Gdx.input.setInputProcessor(new InputMultiplexer(stage, new InputAdapter() {
+				float offsetX;
+				float offsetY;
+
+				public boolean touchDown (int screenX, int screenY, int pointer, int button) {
+					offsetX = screenX;
+					offsetY = Gdx.graphics.getHeight() - 1 - screenY;
+					return false;
+				}
+
+				public boolean touchDragged (int screenX, int screenY, int pointer) {
+					float deltaX = screenX - offsetX;
+					float deltaY = Gdx.graphics.getHeight() - 1 - screenY - offsetY;
+
+					camera.position.x -= deltaX * camera.zoom;
+					camera.position.y -= deltaY * camera.zoom;
+
+					offsetX = screenX;
+					offsetY = Gdx.graphics.getHeight() - 1 - screenY;
+					return false;
+				}
+
+				public boolean touchUp (int screenX, int screenY, int pointer, int button) {
+					savePrefs();
+					return false;
+				}
+
+				public boolean scrolled (int amount) {
+					float zoom = zoomSlider.getValue(), zoomMin = zoomSlider.getMinValue(), zoomMax = zoomSlider.getMaxValue();
+					float speedAlpha = Math.min(1.2f, (zoom - zoomMin) / (zoomMax - zoomMin) * 3.5f);
+					zoom -= linear.apply(0.02f, 0.2f, speedAlpha) * Math.signum(amount);
+					zoomSlider.setValue(MathUtils.clamp(zoom, zoomMin, zoomMax));
+					return false;
+				}
+			}));
+
+			ChangeListener savePrefsListener = new ChangeListener() {
+				public void changed (ChangeEvent event, Actor actor) {
+					if (actor instanceof Slider && ((Slider)actor).isDragging()) return;
+					savePrefs();
+				}
+			};
+			debugBonesCheckbox.addListener(savePrefsListener);
+			debugRegionsCheckbox.addListener(savePrefsListener);
+			debugMeshHullCheckbox.addListener(savePrefsListener);
+			debugMeshTrianglesCheckbox.addListener(savePrefsListener);
+			debugPathsCheckbox.addListener(savePrefsListener);
+			debugPointsCheckbox.addListener(savePrefsListener);
+			debugClippingCheckbox.addListener(savePrefsListener);
+			premultipliedCheckbox.addListener(savePrefsListener);
+			loopCheckbox.addListener(savePrefsListener);
+			addCheckbox.addListener(savePrefsListener);
+			speedSlider.addListener(savePrefsListener);
+			speedResetButton.addListener(savePrefsListener);
+			mixSlider.addListener(savePrefsListener);
+			loadScaleSlider.addListener(savePrefsListener);
+			loadScaleResetButton.addListener(savePrefsListener);
+			zoomSlider.addListener(savePrefsListener);
+			zoomResetButton.addListener(savePrefsListener);
+			animationList.addListener(savePrefsListener);
+			skinList.addListener(savePrefsListener);
+		}
+
+		Table table (Actor... actors) {
+			Table table = new Table(skin);
+			table.defaults().space(6);
+			table.add(actors);
+			return table;
+		}
+
+		void render () {
+			if (state != null && state.getCurrent(trackButtons.getCheckedIndex()) == null) {
+				animationList.getSelection().setProgrammaticChangeEvents(false);
+				animationList.setSelected(null);
+				animationList.getSelection().setProgrammaticChangeEvents(true);
+			}
+
+			statusLabel.pack();
+			if (minimizeButton.isChecked())
+				statusLabel.setPosition(10, 25, Align.bottom | Align.left);
+			else
+				statusLabel.setPosition(window.getWidth() + 6, 5, Align.bottom | Align.left);
+
+			stage.act();
+			stage.draw();
+		}
+
+		void toast (String text) {
+			Table table = new Table();
+			table.add(new Label(text, skin));
+			table.getColor().a = 0;
+			table.pack();
+			table.setPosition(-table.getWidth(), -3 - table.getHeight());
+			table.addAction(sequence( //
+				parallel(moveBy(0, table.getHeight(), 0.3f), fadeIn(0.3f)), //
+				delay(5f), //
+				parallel(moveBy(0, table.getHeight(), 0.3f), fadeOut(0.3f)), //
+				removeActor() //
+			));
+			for (Actor actor : toasts.getChildren())
+				actor.addAction(moveBy(0, table.getHeight(), 0.3f));
+			toasts.addActor(table);
+			toasts.getParent().toFront();
+		}
+
+		void savePrefs () {
+			if (!prefsLoaded) return;
+			prefs.putBoolean("debugBones", debugBonesCheckbox.isChecked());
+			prefs.putBoolean("debugRegions", debugRegionsCheckbox.isChecked());
+			prefs.putBoolean("debugMeshHull", debugMeshHullCheckbox.isChecked());
+			prefs.putBoolean("debugMeshTriangles", debugMeshTrianglesCheckbox.isChecked());
+			prefs.putBoolean("debugPaths", debugPathsCheckbox.isChecked());
+			prefs.putBoolean("debugPoints", debugPointsCheckbox.isChecked());
+			prefs.putBoolean("debugClipping", debugClippingCheckbox.isChecked());
+			prefs.putBoolean("premultiplied", premultipliedCheckbox.isChecked());
+			prefs.putBoolean("loop", loopCheckbox.isChecked());
+			prefs.putBoolean("add", addCheckbox.isChecked());
+			prefs.putFloat("speed", speedSlider.getValue());
+			prefs.putFloat("mix", mixSlider.getValue());
+			prefs.putFloat("scale", loadScaleSlider.getValue());
+			prefs.putFloat("zoom", zoomSlider.getValue());
+			prefs.putFloat("x", camera.position.x);
+			prefs.putFloat("y", camera.position.y);
+			if (state != null) {
+				TrackEntry current = state.getCurrent(0);
+				if (current != null) {
+					String name = current.animation.name;
+					if (name.equals("<empty>")) name = current.next == null ? "" : current.next.animation.name;
+					prefs.putString("animationName", name);
+				}
+			}
+			if (skinList.getSelected() != null) prefs.putString("skinName", skinList.getSelected());
+			prefs.flush();
+		}
+
+		void loadPrefs () {
+			try {
+				debugBonesCheckbox.setChecked(prefs.getBoolean("debugBones", true));
+				debugRegionsCheckbox.setChecked(prefs.getBoolean("debugRegions", false));
+				debugMeshHullCheckbox.setChecked(prefs.getBoolean("debugMeshHull", false));
+				debugMeshTrianglesCheckbox.setChecked(prefs.getBoolean("debugMeshTriangles", false));
+				debugPathsCheckbox.setChecked(prefs.getBoolean("debugPaths", true));
+				debugPointsCheckbox.setChecked(prefs.getBoolean("debugPoints", true));
+				debugClippingCheckbox.setChecked(prefs.getBoolean("debugClipping", true));
+				premultipliedCheckbox.setChecked(prefs.getBoolean("premultiplied", true));
+				loopCheckbox.setChecked(prefs.getBoolean("loop", true));
+				addCheckbox.setChecked(prefs.getBoolean("add", false));
+				speedSlider.setValue(prefs.getFloat("speed", 0.3f));
+				mixSlider.setValue(prefs.getFloat("mix", 0.3f));
+
+				zoomSlider.setValue(prefs.getFloat("zoom", 1));
+				camera.zoom = 1 / prefs.getFloat("zoom", 1);
+				camera.position.x = prefs.getFloat("x", 0);
+				camera.position.y = prefs.getFloat("y", 0);
+
+				loadScaleSlider.setValue(prefs.getFloat("scale", 1));
+				animationList.setSelected(prefs.getString("animationName", null));
+				skinList.setSelected(prefs.getString("skinName", null));
+			} catch (Throwable ex) {
+				System.out.println("Unable to read preferences:");
+				ex.printStackTrace();
+			}
+		}
+	}
+
+	static public void main (String[] args) throws Exception {
+		SkeletonViewer.args = args;
+
+		String os = System.getProperty("os.name");
+		float dpiScale = 1;
+		if (os.contains("Windows")) dpiScale = Toolkit.getDefaultToolkit().getScreenResolution() / 96f;
+		if (os.contains("OS X")) {
+			Object object = Toolkit.getDefaultToolkit().getDesktopProperty("apple.awt.contentScaleFactor");
+			if (object instanceof Float && ((Float)object).intValue() >= 2) dpiScale = 2;
+		}
+		if (dpiScale >= 2.0f) uiScale = 2;
+
+		LwjglApplicationConfiguration.disableAudio = true;
+		LwjglApplicationConfiguration config = new LwjglApplicationConfiguration();
+		config.width = (int)(800 * uiScale);
+		config.height = (int)(600 * uiScale);
+		config.title = "Skeleton Viewer";
+		config.allowSoftwareMode = true;
+		config.samples = 2;
+		new LwjglApplication(new SkeletonViewer(), config);
+	}
+}

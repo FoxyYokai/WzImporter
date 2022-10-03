@@ -1,0 +1,9 @@
+﻿################################################################################
+# This .gitignore file was automatically created by Microsoft(R) Visual Studio.
+################################################################################
+
+/.vs
+*[Cc]ompiled
+*[Bb]in
+*[Oo]bj
+/UpgradeLog.htm
