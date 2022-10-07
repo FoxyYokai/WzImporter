@@ -34,184 +34,198 @@ namespace WzImporter
 
         public void ImportXML(Form1 form)
         {
-            form.UpdateProgress("Starting...");
-
-            outputFileName = outputDir + inputFromFileName.Substring(inputFromFileName.LastIndexOf(@"\"));
-            if (File.Exists(outputFileName))
-                File.Delete(outputFileName);
-            if (File.Exists(outputFileName.Replace("Character.wz", "String.wz")))
-                File.Delete(outputFileName.Replace("Character.wz", "String.wz"));
-
-            linkNodeErrorsFileName = outputFileName.Replace("Character.wz", "LinkErrors.txt");
-            if (File.Exists(linkNodeErrorsFileName))
-                File.Delete(linkNodeErrorsFileName);
-
-            // load up the to and from
-            import_from_Wz = new WzFile(inputFromFileName, WzMapleVersion.BMS);
-            import_to_Wz = new WzFile(inputToFileName, WzMapleVersion.GMS);
-            import_from_StringWz = new WzFile(inputFromFileName, WzMapleVersion.BMS);
-            import_to_StringWz = new WzFile(inputToFileName, WzMapleVersion.GMS);
-
-            WzClassicXmlSerializer s = new WzClassicXmlSerializer(0, LineBreak.None, true);
-
-            if (includeString)
+            try
             {
-                if (File.Exists(inputFromFileName.Replace("Character.wz", "String.wz")))
+                form.UpdateProgress("Starting...");
+
+                outputFileName = outputDir + inputFromFileName.Substring(inputFromFileName.LastIndexOf(@"\"));
+                if (File.Exists(outputFileName))
+                    File.Delete(outputFileName);
+                if (File.Exists(outputFileName.Replace("Character.wz", "String.wz")))
+                    File.Delete(outputFileName.Replace("Character.wz", "String.wz"));
+
+                linkNodeErrorsFileName = outputFileName.Replace("Character.wz", "LinkErrors.txt");
+                if (File.Exists(linkNodeErrorsFileName))
+                    File.Delete(linkNodeErrorsFileName);
+
+                // load up the to and from
+                import_from_Wz = new WzFile(inputFromFileName, WzMapleVersion.BMS);
+                import_to_Wz = new WzFile(inputToFileName, WzMapleVersion.GMS);
+                import_from_StringWz = new WzFile(inputFromFileName, WzMapleVersion.BMS);
+                import_to_StringWz = new WzFile(inputToFileName, WzMapleVersion.GMS);
+
+                WzClassicXmlSerializer s = new WzClassicXmlSerializer(0, LineBreak.None, true);
+
+                if (includeString)
                 {
-                    import_from_StringWz = new WzFile(inputFromFileName.Replace("Character.wz", "String.wz"), WzMapleVersion.BMS);
-                    import_from_StringWz.ParseWzFile();
-                }
-                else
-                {
-                    string message = "Unable to find String.wz to import from at " + inputFromFileName.Replace("Character.wz", "String.wz");
-                    string title = "Error";
-                    MessageBox.Show(message, title);
-                    return;
-                }
-
-                if (File.Exists(inputToFileName.Replace("Character.wz", "String.wz")))
-                {
-                    import_to_StringWz = new WzFile(inputToFileName.Replace("Character.wz", "String.wz"), WzMapleVersion.GMS);
-                    import_to_StringWz.ParseWzFile();
-                }
-                else
-                {
-                    string message = "Unable to find String.wz to import to at " + inputToFileName.Replace("Character.wz", "String.wz");
-                    string title = "Error";
-                    MessageBox.Show(message, title);
-                    return;
-                }
-            }
-
-            import_from_Wz.ParseWzFile();
-            import_to_Wz.ParseWzFile();
-
-            for (int i = 0; i < dirs.Length; i++)
-            {
-                if (selections[i])
-                {
-                    form.UpdateProgress("Working on " + dirs[i] + "...");
-
-                    // determine what directories we're updating and determine deltas.
-                    WzDirectory toDirectory = new WzDirectory();
-                    toDirectory = (WzDirectory)import_to_Wz[dirs[i]];
-
-                    WzDirectory fromDirectory = new WzDirectory();
-                    fromDirectory = (WzDirectory)import_from_Wz[dirs[i]];
-
-                    WzImage toStringImg = new WzImage();
-                    WzImage fromStringImg = new WzImage();
-
-                    //special face handling for speed and space efficiency. don't fetch these from Accessory.img. Add face 19999.img and append all the emotes there for reference within Face.img           
-                    if (dirs[i] == "Face")
+                    if (File.Exists(inputFromFileName.Replace("Character.wz", "String.wz")))
                     {
-                        if (import_to_Wz["Face"]["00019999.img"] == null)
+                        import_from_StringWz = new WzFile(inputFromFileName.Replace("Character.wz", "String.wz"), WzMapleVersion.BMS);
+                        import_from_StringWz.ParseWzFile();
+                    }
+                    else
+                    {
+                        string message = "Unable to find String.wz to import from at " + inputFromFileName.Replace("Character.wz", "String.wz");
+                        string title = "Error";
+                        MessageBox.Show(message, title);
+                        return;
+                    }
+
+                    if (File.Exists(inputToFileName.Replace("Character.wz", "String.wz")))
+                    {
+                        import_to_StringWz = new WzFile(inputToFileName.Replace("Character.wz", "String.wz"), WzMapleVersion.GMS);
+                        import_to_StringWz.ParseWzFile();
+                    }
+                    else
+                    {
+                        string message = "Unable to find String.wz to import to at " + inputToFileName.Replace("Character.wz", "String.wz");
+                        string title = "Error";
+                        MessageBox.Show(message, title);
+                        return;
+                    }
+                }
+
+                import_from_Wz.ParseWzFile();
+                import_to_Wz.ParseWzFile();
+
+                for (int i = 0; i < dirs.Length; i++)
+                {
+                    if (selections[i])
+                    {
+                        form.UpdateProgress("Working on " + dirs[i] + "...");
+
+                        // determine what directories we're updating and determine deltas.
+                        WzDirectory toDirectory = new WzDirectory();
+                        toDirectory = (WzDirectory)import_to_Wz[dirs[i]];
+
+                        WzDirectory fromDirectory = new WzDirectory();
+                        fromDirectory = (WzDirectory)import_from_Wz[dirs[i]];
+
+                        WzImage toStringImg = new WzImage();
+                        WzImage fromStringImg = new WzImage();
+
+                        //special face handling for speed and space efficiency. don't fetch these from Accessory.img. Add face 19999.img and append all the emotes there for reference within Face.img           
+                        if (dirs[i] == "Face")
                         {
-                            XmlDocument emoteReferenceFaceDoc = new XmlDocument();
-                            using (Stream stream = this.GetType().Assembly.GetManifestResourceStream("WzImporter.00019999.img.xml"))
+                            if (import_to_Wz["Face"]["00019999.img"] == null)
                             {
-                                using (StreamReader sr = new StreamReader(stream))
+                                XmlDocument emoteReferenceFaceDoc = new XmlDocument();
+                                using (Stream stream = this.GetType().Assembly.GetManifestResourceStream("WzImporter.00019999.img.xml"))
                                 {
-                                    emoteReferenceFaceDoc.LoadXml(sr.ReadToEnd());
+                                    using (StreamReader sr = new StreamReader(stream))
+                                    {
+                                        emoteReferenceFaceDoc.LoadXml(sr.ReadToEnd());
+                                    }
                                 }
-                            }
-                            WzImage emoteFaceImg = (WzImage)new WzXmlDeserializer(false, null).ParseXML(emoteReferenceFaceDoc.OuterXml)[0];
-                            emoteFaceImg.ParseImage();
-                            toDirectory.AddImage(emoteFaceImg);
-                        }
-                    }
-
-                    List<WzImage> fromImages = fromDirectory.WzImages;
-                    List<WzImage> toImages = toDirectory.WzImages;
-                    List<string> toImagesNames = new List<string>();
-                    foreach (WzImage im in toImages) toImagesNames.Add(im.Name);
-                    List<WzImage> imgsToAdd = fromImages
-                        .Where(x => !toImagesNames.Contains(x.Name)).ToList();
-
-                    if (includeString)
-                    {
-                        toStringImg = (WzImage)import_to_StringWz["Eqp.img"];
-                        fromStringImg = (WzImage)import_from_StringWz["Eqp.img"];
-                        toStringImg.ParseImage();
-                        fromStringImg.ParseImage();
-                    }
-
-                    int imCount = 1;
-                    foreach (WzImage im in imgsToAdd)
-                    {
-                        im.ParseImage();
-
-                        form.UpdateProgress("Working on " + dirs[i] + "..." + im.Name + " ( " + imCount + " of " + imgsToAdd.Count + " )");
-                        imCount++;
-
-                        XmlDocument img = new XmlDocument();
-                        img.LoadXml(s.exportXml(im));
-
-                        // Skip any non-cash items if checked. Hair and Face may not be marked as cash, but all should be processed.
-                        if (dirs[i] != "Hair" && dirs[i] != "Face")
-                        {
-                            if (cashOnly && img.SelectSingleNode("//int[@name='cash']") != null && img.SelectSingleNode("//int[@name='cash']").Attributes["value"].Value != "1")
-                            {
-                                im.UnparseImage();
-                                continue;
+                                WzImage emoteFaceImg = (WzImage)new WzXmlDeserializer(false, null).ParseXML(emoteReferenceFaceDoc.OuterXml)[0];
+                                emoteFaceImg.ParseImage();
+                                toDirectory.AddImage(emoteFaceImg);
                             }
                         }
 
-                        // convert _inlink and _outlink nodes using WzUOLProperty supported in v83
-                        ProcessInLinks(ref img, i, s, im, false);
-                        ProcessOutLinks(ref img, i, s, im, false);
-
-                        // remove any of these int properties that are N/A for v83
-                        foreach (XmlNode fixedGradeNode in img.SelectNodes("//int[@name='fixedGrade' or @name='fixedPotential' or @name='specialGrade' or @name='exItem' or @name='charmEXP' or @name='charismaEXP' or @name='willEXP' or @name='setItemID' or @name='epicItem']"))
-                            fixedGradeNode.ParentNode.RemoveChild(fixedGradeNode);
-
-                        // Second pass to account for _inlink or _outlink pointing to another _inlink or _outlink -- not supported in v83
-                        ProcessInLinks(ref img, i, s, im, true);
-                        ProcessOutLinks(ref img, i, s, im, true);
-
-                        // One last pass for uol links in newer versions that point to other links.
-                        foreach(XmlNode uolLink in img.SelectNodes("//imgdir/uol"))
-                        {
-                            string link = uolLink.Attributes["value"].Value;
-                            XmlNode tempNode = uolLink.ParentNode;
-                            while(tempNode != null && link.Contains("../"))
-                            {
-                                tempNode = tempNode.ParentNode;
-                                link = link.Remove(0, 3);
-                            }
-                            if (UolPointsToUol(tempNode, ref link))
-                            {
-                                uolLink.Attributes["value"].Value = link;
-                            }                          
-                        }
-
-                        WzImage newImage = (WzImage)new WzXmlDeserializer(false, null).ParseXML(img.OuterXml)[0];
-                        newImage.ParseImage();
-                        toDirectory.AddImage(newImage);
-                        im.UnparseImage();
+                        List<WzImage> fromImages = fromDirectory.WzImages;
+                        List<WzImage> toImages = toDirectory.WzImages;
+                        List<string> toImagesNames = new List<string>();
+                        foreach (WzImage im in toImages) toImagesNames.Add(im.Name);
+                        List<WzImage> imgsToAdd = fromImages
+                            .Where(x => !toImagesNames.Contains(x.Name)).ToList();
 
                         if (includeString)
                         {
-                            //possible the string for the item hasn't been added yet for the new version
-                            WzSubProperty fromStringProp = (WzSubProperty)fromStringImg["Eqp"][dirs[i]][Convert.ToInt32(im.Name.Replace(".img", "")).ToString()];
-                            if (fromStringProp != null)
+                            toStringImg = (WzImage)import_to_StringWz["Eqp.img"];
+                            fromStringImg = (WzImage)import_from_StringWz["Eqp.img"];
+                            toStringImg.ParseImage();
+                            fromStringImg.ParseImage();
+                        }
+
+                        int imCount = 1;
+                        foreach (WzImage im in imgsToAdd)
+                        {
+                            im.ParseImage();
+
+                            form.UpdateProgress("Working on " + dirs[i] + "..." + im.Name + " ( " + imCount + " of " + imgsToAdd.Count + " )");
+                            imCount++;
+
+                            XmlDocument img = new XmlDocument();
+                            img.LoadXml(s.exportXml(im));
+
+                            // Skip any non-cash items if checked. Hair and Face may not be marked as cash, but all should be processed.
+                            if (dirs[i] != "Hair" && dirs[i] != "Face")
                             {
-                                WzSubProperty toStringProp = (WzSubProperty)fromStringProp.DeepClone();
-                                WzSubProperty temp = (WzSubProperty)toStringImg["Eqp"][dirs[i]];
-                                temp.AddProperty(toStringProp);
-                                toStringImg.Changed = true;
+                                if (cashOnly && img.SelectSingleNode("//int[@name='cash']") != null && img.SelectSingleNode("//int[@name='cash']").Attributes["value"].Value != "1")
+                                {
+                                    im.UnparseImage();
+                                    continue;
+                                }
+                            }
+
+                            // convert _inlink and _outlink nodes using WzUOLProperty supported in v83
+                            ProcessInLinks(ref img, i, s, im, false);
+                            ProcessOutLinks(ref img, i, s, im, false);
+
+                            // remove any of these int properties that are N/A for v83
+                            foreach (XmlNode fixedGradeNode in img.SelectNodes("//int[@name='fixedGrade' or @name='fixedPotential' or @name='specialGrade' or @name='exItem' or @name='charmEXP' or @name='charismaEXP' or @name='willEXP' or @name='setItemID' or @name='epicItem']"))
+                                fixedGradeNode.ParentNode.RemoveChild(fixedGradeNode);
+
+                            // Second pass to account for _inlink or _outlink pointing to another _inlink or _outlink -- not supported in v83
+                            ProcessInLinks(ref img, i, s, im, true);
+                            ProcessOutLinks(ref img, i, s, im, true);
+
+                            // One last pass for uol links in newer versions that point to other links.
+                            foreach (XmlNode uolLink in img.SelectNodes("//imgdir/uol"))
+                            {
+                                string link = uolLink.Attributes["value"].Value;
+                                XmlNode tempNode = uolLink.ParentNode;
+                                while (tempNode != null && link.Contains("../"))
+                                {
+                                    tempNode = tempNode.ParentNode;
+                                    link = link.Remove(0, 3);
+                                }
+                                if (UolPointsToUol(tempNode, ref link))
+                                {
+                                    uolLink.Attributes["value"].Value = link;
+                                }
+                            }
+
+                            WzImage newImage = (WzImage)new WzXmlDeserializer(false, null).ParseXML(img.OuterXml)[0];
+                            newImage.ParseImage();
+                            toDirectory.AddImage(newImage);
+                            im.UnparseImage();
+
+                            if (includeString)
+                            {
+                                //possible the string for the item hasn't been added yet for the new version
+                                WzSubProperty fromStringProp = (WzSubProperty)fromStringImg["Eqp"][dirs[i]][Convert.ToInt32(im.Name.Replace(".img", "")).ToString()];
+                                if (fromStringProp != null)
+                                {
+                                    WzSubProperty toStringProp = (WzSubProperty)fromStringProp.DeepClone();
+                                    WzSubProperty temp = (WzSubProperty)toStringImg["Eqp"][dirs[i]];
+                                    temp.AddProperty(toStringProp);
+                                    toStringImg.Changed = true;
+                                }
                             }
                         }
                     }
                 }
+                form.UpdateProgress("Saving " + outputFileName + " ...");
+                import_to_Wz.SaveToDisk(outputFileName, false);
+                if (includeString)
+                    import_to_StringWz.SaveToDisk(outputFileName.Replace("Character.wz", "String.wz"), false);
+                if (linkErrors.Count > 0)
+                    File.WriteAllLines(linkNodeErrorsFileName, linkErrors);
+                form.UpdateProgress("Ready");
             }
-            form.UpdateProgress("Saving " + outputFileName + " ...");
-            import_to_Wz.SaveToDisk(outputFileName, false);
-            if (includeString)
-                import_to_StringWz.SaveToDisk(outputFileName.Replace("Character.wz", "String.wz"), false);
-            if (linkErrors.Count > 0)
-                File.WriteAllLines(linkNodeErrorsFileName, linkErrors);
-            form.UpdateProgress("Ready");
+            catch (Exception ex)
+            {
+                MessageBox.Show(ex.Message);
+            }
+            finally
+            {
+                import_to_Wz.Dispose();
+                import_from_Wz.Dispose();
+                import_from_StringWz.Dispose();
+                import_to_StringWz.Dispose();
+            }
         }
 
         private bool ValidateLink(XmlNode linkNode, ref string link)
