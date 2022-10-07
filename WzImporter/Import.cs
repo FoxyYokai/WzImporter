@@ -218,6 +218,7 @@ namespace WzImporter
             catch (Exception ex)
             {
                 MessageBox.Show(ex.Message);
+                form.UpdateProgress("Ready");
             }
             finally
             {
