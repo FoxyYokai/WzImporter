@@ -77,7 +77,7 @@ namespace WzImporter
 
             if (!checkBox1.Checked && !checkBox2.Checked && !checkBox3.Checked && !checkBox4.Checked
                 && !checkBox5.Checked && !checkBox6.Checked && !checkBox7.Checked && !checkBox8.Checked
-                && !checkBox9.Checked && !checkBox10.Checked && !checkBox11.Checked && !checkBox12.Checked && !checkBox13.Checked)
+                && !checkBox9.Checked && !checkBox10.Checked && !checkBox11.Checked && !checkBox12.Checked && !checkBox13.Checked && !checkBox14.Checked)
                 return;
 
             string message = "Importing is a very high memory-intensive operation. Program may crash if multiple selections are made at once. Do you wish to continue?";

@@ -31,6 +31,7 @@ namespace WzImporter
         private WzFile import_to_Wz;
         private WzFile import_from_StringWz;
         private WzFile import_to_StringWz;
+        private string prevTmpFileName = "";
 
         public void ImportXML(Form1 form)
         {
@@ -53,6 +54,8 @@ namespace WzImporter
                 import_to_Wz = new WzFile(inputToFileName, WzMapleVersion.GMS);
                 import_from_StringWz = new WzFile(inputFromFileName, WzMapleVersion.BMS);
                 import_to_StringWz = new WzFile(inputToFileName, WzMapleVersion.GMS);
+                import_from_Wz.ParseWzFile();
+                import_to_Wz.ParseWzFile();
 
                 WzClassicXmlSerializer s = new WzClassicXmlSerializer(0, LineBreak.None, true);
 
@@ -84,9 +87,6 @@ namespace WzImporter
                         return;
                     }
                 }
-
-                import_from_Wz.ParseWzFile();
-                import_to_Wz.ParseWzFile();
 
                 for (int i = 0; i < dirs.Length; i++)
                 {
@@ -139,12 +139,22 @@ namespace WzImporter
                         }
 
                         int imCount = 1;
+                        int count = 1;
                         foreach (WzImage im in imgsToAdd)
                         {
                             im.ParseImage();
 
                             form.UpdateProgress("Working on " + dirs[i] + "..." + im.Name + " ( " + imCount + " of " + imgsToAdd.Count + " )");
                             imCount++;
+                            count++;
+
+                            //work in 500 image chunk sizes to keep memory usage reasonable
+                            if (count == 500)
+                            {
+                                count = 1;
+                                SaveTempFile(ref toDirectory);
+                                toDirectory = (WzDirectory)import_to_Wz[dirs[i]];
+                            }
 
                             XmlDocument img = new XmlDocument();
                             img.LoadXml(s.exportXml(im));
@@ -195,18 +205,24 @@ namespace WzImporter
                             if (includeString)
                             {
                                 //possible the string for the item hasn't been added yet for the new version
-                                WzSubProperty fromStringProp = (WzSubProperty)fromStringImg["Eqp"][dirs[i]][Convert.ToInt32(im.Name.Replace(".img", "")).ToString()];
-                                if (fromStringProp != null)
+                                int itemId = 0;
+                                if (Int32.TryParse(im.Name.Replace(".img", ""), out itemId))
                                 {
-                                    WzSubProperty toStringProp = (WzSubProperty)fromStringProp.DeepClone();
-                                    WzSubProperty temp = (WzSubProperty)toStringImg["Eqp"][dirs[i]];
-                                    temp.AddProperty(toStringProp);
-                                    toStringImg.Changed = true;
+                                    WzSubProperty fromStringProp = (WzSubProperty)fromStringImg["Eqp"][dirs[i]][itemId.ToString()];
+                                    if (fromStringProp != null)
+                                    {
+                                        WzSubProperty toStringProp = (WzSubProperty)fromStringProp.DeepClone();
+                                        WzSubProperty temp = (WzSubProperty)toStringImg["Eqp"][dirs[i]];
+                                        temp.AddProperty(toStringProp);
+                                        toStringImg.Changed = true;
+                                    }
                                 }
                             }
                         }
                     }
                 }
+
+                // Save and Clean up
                 form.UpdateProgress("Saving " + outputFileName + " ...");
                 import_to_Wz.SaveToDisk(outputFileName, false);
                 if (includeString)
@@ -226,6 +242,10 @@ namespace WzImporter
                 import_from_Wz.Dispose();
                 import_from_StringWz.Dispose();
                 import_to_StringWz.Dispose();
+                if (prevTmpFileName != "")
+                {
+                    File.Delete(prevTmpFileName);
+                }
             }
         }
 
@@ -246,7 +266,7 @@ namespace WzImporter
                     {
                         return false; //will catch it in round 2.
                     }
-                    else if(linkNode.SelectSingleNode(tmpLink).Name == "uol")
+                    else if (linkNode.SelectSingleNode(tmpLink).Name == "uol")
                     {
                         link = linkNode.SelectSingleNode(tmpLink).Attributes["value"].Value;
                         return true;
@@ -323,7 +343,7 @@ namespace WzImporter
 
                 if (!ValidateLink(tmpNode, ref link))
                 {
-                    if(secondPass)
+                    if (secondPass)
                         linkErrors.Add("Link Error: " + im.Name + " - " + inLinkNode.Name + " | " + link);
                     continue; //first pass
                 }
@@ -411,6 +431,21 @@ namespace WzImporter
                 outLinkNode.ParentNode.AppendChild(newNode);
                 outLinkNode.ParentNode.RemoveChild(outLinkNode);
             }
+        }
+        private void SaveTempFile(ref WzDirectory toDirectory)
+        {
+            string tmpFileName = Path.GetTempFileName();
+            import_to_Wz.SaveToDisk(tmpFileName, false);
+            import_to_Wz.Dispose();
+            import_to_Wz = new WzFile(tmpFileName, WzMapleVersion.GMS);
+            import_to_Wz.ParseWzFile();
+            if (prevTmpFileName != "")
+            {
+                File.Delete(prevTmpFileName);
+                prevTmpFileName = tmpFileName;
+            }
+            else
+                prevTmpFileName = tmpFileName;
         }
     }
 }
