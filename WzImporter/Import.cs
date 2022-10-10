@@ -19,6 +19,8 @@ namespace WzImporter
         public bool[] selections = new bool[14];
         public bool cashOnly = false;
         public bool includeString = false;
+        public bool onlyThese = false;
+        public List<string> onlyTheseItems = new List<string>();
         public string inputFromFileName = "";
         public string inputToFileName = "";
         public string outputDir = "";
@@ -88,6 +90,11 @@ namespace WzImporter
                     }
                 }
 
+                if (onlyThese)
+                {
+                    FillDirsFromList(onlyTheseItems);
+                }
+
                 for (int i = 0; i < dirs.Length; i++)
                 {
                     if (selections[i])
@@ -122,13 +129,25 @@ namespace WzImporter
                                 toDirectory.AddImage(emoteFaceImg);
                             }
                         }
-
+                        List<WzImage> imgsToAdd = new List<WzImage>();
                         List<WzImage> fromImages = fromDirectory.WzImages;
                         List<WzImage> toImages = toDirectory.WzImages;
-                        List<string> toImagesNames = new List<string>();
-                        foreach (WzImage im in toImages) toImagesNames.Add(im.Name);
-                        List<WzImage> imgsToAdd = fromImages
-                            .Where(x => !toImagesNames.Contains(x.Name)).ToList();
+                        if (onlyThese)
+                        {
+                            List<string> relevantItems = new List<string>();
+                            foreach (string item in onlyTheseItems)
+                                if (EquipTypeFromId(item.Replace(".img", "")) == i)
+                                    relevantItems.Add(item);
+                            imgsToAdd = fromImages
+                                .Where(x => relevantItems.Contains(x.Name)).ToList();
+                        }
+                        else
+                        {
+                            List<string> toImagesNames = new List<string>();
+                            foreach (WzImage im in toImages) toImagesNames.Add(im.Name);
+                            imgsToAdd = fromImages
+                                .Where(x => !toImagesNames.Contains(x.Name)).ToList();
+                        }
 
                         if (includeString)
                         {
@@ -148,8 +167,8 @@ namespace WzImporter
                             imCount++;
                             count++;
 
-                            //work in 500 image chunk sizes to keep memory usage reasonable
-                            if (count == 500)
+                            //work in 300 image chunk sizes to keep memory usage reasonable
+                            if (count == 300)
                             {
                                 count = 1;
                                 SaveTempFile(ref toDirectory);
@@ -282,7 +301,6 @@ namespace WzImporter
                 return false;
             }
         }
-
         private bool UolPointsToUol(XmlNode linkNode, ref string link)
         {
             string tmpLink = link;
@@ -307,7 +325,6 @@ namespace WzImporter
                 return false;
             }
         }
-
         private string ConvertToXpath(string path)
         {
             string xpath = "";
@@ -320,7 +337,6 @@ namespace WzImporter
                 xpath = xpath.Substring(0, xpath.Length - 1);
             return xpath;
         }
-
         private void ProcessInLinks(ref XmlDocument img, int i, WzClassicXmlSerializer s, WzImage im, bool secondPass)
         {
             // convert _inlink nodes using WzUOLProperty supported in v83
@@ -328,6 +344,20 @@ namespace WzImporter
             {
                 string name = inLinkNode.Attributes["name"].Value;
                 string link = inLinkNode.SelectSingleNode("string[@name='_inlink']").Attributes["value"].Value;
+                XmlNode myOriginNode = inLinkNode.SelectSingleNode("vector[@name='origin']");
+                XmlNode myZNode = inLinkNode.SelectSingleNode("string[@name='z']");
+                string myOriginX = "";
+                string myOriginY = "";
+                string myZ = "";
+                if (myOriginNode != null)
+                {
+                    myOriginX = myOriginNode.SelectSingleNode("@x").Value;
+                    myOriginY = myOriginNode.SelectSingleNode("@y").Value;
+                }
+                if (myZNode != null)
+                {
+                    myZ = myZNode.SelectSingleNode("@value").Value;
+                }
 
                 XmlNode tmpNode = inLinkNode;
                 while (tmpNode.ParentNode != null && tmpNode.Name != "imgdir") //move up to the nearest imgdir node to count from.
@@ -340,6 +370,52 @@ namespace WzImporter
                     link = "../" + link;
                     tmpNode = tmpNode.ParentNode;
                 }
+
+                // it's possible for newer versions to ref an image and all they change is the origin (common with weapons)
+                // v83 doesn't support this, so need to make a copy of the ref'd image and change the origin
+                // if the origin of the referenced node doesn't exist, assume we need to keep ours.
+                string outOriginX = "";
+                string outOriginY = "";
+                string outZ = "";
+                XmlNode originNode = tmpNode.SelectSingleNode(ConvertToXpath(link.Replace("../", "")));
+                if (originNode != null)
+                    originNode = originNode.SelectSingleNode("vector[@name='origin']");
+                XmlNode zNode = tmpNode.SelectSingleNode(ConvertToXpath(link.Replace("../", "")));
+                if (zNode != null)
+                    zNode = zNode.SelectSingleNode("string[@name='z']");
+                if (originNode != null)
+                {
+                    outOriginX = originNode.SelectSingleNode("@x").Value;
+                    outOriginY = originNode.SelectSingleNode("@y").Value;
+                }
+                if (zNode != null)
+                {
+                    outZ = zNode.SelectSingleNode("@value").Value;
+                }
+
+                // the referenced image has a different origin or Z, so we have to make a copy and keep ours.
+                if (myOriginX != outOriginX || myOriginY != outOriginY || myZ != outZ)
+                {
+                    string xpathFromLink = ConvertToXpath(link.Replace("../", ""));
+                    XmlNode refNode = tmpNode.SelectSingleNode(xpathFromLink);
+                    if (refNode != null)
+                    {
+                        refNode = refNode.CloneNode(true);
+                        if (myOriginX != outOriginX || myOriginY != outOriginY)
+                        {
+                            refNode.SelectSingleNode("vector[@name='origin']/@x").Value = myOriginX;
+                            refNode.SelectSingleNode("vector[@name='origin']/@y").Value = myOriginY;
+                        }
+                        if (myZ != outZ)
+                        {
+                            refNode.SelectSingleNode("string[@name='z']/@value").Value = myZ;
+                        }
+                        inLinkNode.ParentNode.AppendChild(refNode);
+                        inLinkNode.ParentNode.RemoveChild(inLinkNode);
+                    }
+                    continue;
+                }
+
 
                 if (!ValidateLink(tmpNode, ref link))
                 {
@@ -356,13 +432,26 @@ namespace WzImporter
                 inLinkNode.ParentNode.RemoveChild(inLinkNode);
             }
         }
-
         private void ProcessOutLinks(ref XmlDocument img, int i, WzClassicXmlSerializer s, WzImage im, bool secondPass)
         {
             foreach (XmlNode outLinkNode in img.SelectNodes("//canvas[string[@name='_outlink']]"))
             {
                 string name = outLinkNode.Attributes["name"].Value;
                 string link = outLinkNode.SelectSingleNode("string[@name='_outlink']").Attributes["value"].Value;
+                string myOriginX = "";
+                string myOriginY = "";
+                string myZ = "";
+                XmlNode myOriginNode = outLinkNode.SelectSingleNode("vector[@name='origin']");
+                XmlNode myZNode = outLinkNode.SelectSingleNode("string[@name='z']");
+                if (myOriginNode != null)
+                {
+                    myOriginX = myOriginNode.SelectSingleNode("@x").Value;
+                    myOriginY = myOriginNode.SelectSingleNode("@y").Value;
+                }
+                if (myZNode != null)
+                {
+                    myZ = myZNode.SelectSingleNode("@value").Value;
+                }
 
                 XmlNode tmpNode = outLinkNode;
                 if (!link.Contains(dirs[i]))
@@ -391,6 +480,18 @@ namespace WzImporter
                     string linksub = link.Substring(link.IndexOf(".img/") + 5);
                     WzImage refImage = (WzImage)import_from_Wz.GetObjectFromPath(linkimg);
                     refImage.ParseImage();
+                    string outOriginX = "";
+                    string outOriginY = "";
+                    string outZ = "";
+                    if (refImage.GetFromPath(linksub)["origin"] != null) //if the referenced image doesn't have an origin, assume we need to keep ours.
+                    {
+                        outOriginX = ((System.Drawing.Point)refImage.GetFromPath(linksub)["origin"].WzValue).X.ToString();
+                        outOriginY = ((System.Drawing.Point)refImage.GetFromPath(linksub)["origin"].WzValue).Y.ToString();
+                    }
+                    if (refImage.GetFromPath(linksub)["z"] != null) //if the referenced image doesn't have a z, we assume to keep ours
+                    {
+                        outZ = (string)refImage.GetFromPath(linksub)["z"].WzValue;
+                    }
 
                     XmlDocument refImageDoc = new XmlDocument();
                     refImageDoc.LoadXml(s.exportXml(refImage));
@@ -404,6 +505,19 @@ namespace WzImporter
                     newNodeFromRef = img.ImportNode(newNodeFromRef, true);
 
                     newNodeFromRef.Attributes["name"].Value = name;
+                    // it's possible in later versions to ref an eternal image, but change the origin. not possible in v83
+                    if (myOriginX != outOriginX || myOriginY != outOriginY)
+                    {
+                        if (newNodeFromRef.SelectSingleNode("vector[@name='origin']/@x") != null)
+                            newNodeFromRef.SelectSingleNode("vector[@name='origin']/@x").Value = myOriginX;
+                        if (newNodeFromRef.SelectSingleNode("vector[@name='origin']/@y") != null)
+                            newNodeFromRef.SelectSingleNode("vector[@name='origin']/@y").Value = myOriginY;
+                    }
+                    if (myZ != outZ)
+                    {
+                        if (newNodeFromRef.SelectSingleNode("string[@name='z']/@value") != null)
+                            newNodeFromRef.SelectSingleNode("string[@name='z']/@value").Value = myZ;
+                    }
 
                     outLinkNode.ParentNode.AppendChild(newNodeFromRef);
                     outLinkNode.ParentNode.RemoveChild(outLinkNode);
@@ -413,6 +527,56 @@ namespace WzImporter
                 else if (link.Contains("Character/"))
                 {
                     //outlink to another image in the same directory. <uol> will work, but not as an absolute path.
+                    string linkimg = link.Substring(0, link.IndexOf(".img/") + 4);
+                    string linksub = link.Substring(link.IndexOf(".img/") + 5);
+                    WzImage refImage = (WzImage)import_from_Wz.GetObjectFromPath(linkimg);
+                    refImage.ParseImage();
+                    string outOriginX = "";
+                    string outOriginY = "";
+                    string outZ = "";
+                    if (refImage.GetFromPath(linksub)["origin"] != null) //if the referenced image doesn't have an origin, assume we need to keep ours.
+                    {
+                        outOriginX = ((System.Drawing.Point)refImage.GetFromPath(linksub)["origin"].WzValue).X.ToString();
+                        outOriginY = ((System.Drawing.Point)refImage.GetFromPath(linksub)["origin"].WzValue).Y.ToString();
+                    }
+                    if (refImage.GetFromPath(linksub)["z"] != null)
+                    {
+                        outZ = (string)refImage.GetFromPath(linksub)["z"].WzValue;
+                    }
+
+                    // it's possible for newer versions to ref an image and all they change is the origin (common with weapons)
+                    // v83 doesn't support this, so need to make a copy of the ref'd image and change the origin
+                    if (myOriginX != outOriginX || myOriginY != outOriginY || myZ != outZ)
+                    {
+                        XmlDocument refImageDoc = new XmlDocument();
+                        refImageDoc.LoadXml(s.exportXml(refImage));
+                        string[] subs = linksub.Split('/');
+                        linksub = "//";
+                        for (int j = 0; j < subs.Length - 1; j++)
+                            linksub += "imgdir[@name='" + subs[j] + "']/";
+                        linksub += "canvas[@name='" + subs[subs.Length - 1] + "']";
+
+                        XmlNode newNodeFromRef = refImageDoc.SelectSingleNode(linksub).CloneNode(true);
+                        newNodeFromRef = img.ImportNode(newNodeFromRef, true);
+
+                        newNodeFromRef.Attributes["name"].Value = name;
+                        if (myOriginX != outOriginX || myOriginY != outOriginY)
+                        {
+                            newNodeFromRef.SelectSingleNode("vector[@name='origin']/@x").Value = myOriginX;
+                            newNodeFromRef.SelectSingleNode("vector[@name='origin']/@y").Value = myOriginY;
+                        }
+                        if (myZ != outZ)
+                        {
+                            newNodeFromRef.SelectSingleNode("string[@name='z']/@value").Value = myZ;
+                        }
+                        outLinkNode.ParentNode.AppendChild(newNodeFromRef);
+                        outLinkNode.ParentNode.RemoveChild(outLinkNode);
+                        refImage.UnparseImage();
+                        continue;
+                    }
+                    else
+                        refImage.UnparseImage();
+
                     link = link.Replace("Character/", "");
                     link = link.Replace(dirs[i] + "/", "");
                     XmlNode tmpNode2 = outLinkNode;
@@ -446,6 +610,72 @@ namespace WzImporter
             }
             else
                 prevTmpFileName = tmpFileName;
+        }
+        private void FillDirsFromList(List<string> onlyItems)
+        {
+            foreach (string item in onlyItems)
+            {
+                // { "Hair", "Face", "Cap", "Coat", "Pants", "Longcoat", "Shoes", "Cape", "Shield", "Ring", "Accessory", "PetEquip", "Glove", "Weapon" }
+                int i = EquipTypeFromId(item.Replace(".img", ""));
+                if (i == -1)
+                {
+                    onlyItems.Remove(item);
+                    continue;
+                }
+                selections[i] = true;
+            }
+        }
+        private int EquipTypeFromId(string id)
+        {
+            // { "Hair", "Face", "Cap", "Coat", "Pants", "Longcoat", "Shoes", "Cape", "Shield", "Ring", "Accessory", "PetEquip", "Glove", "Weapon" }
+            if (!Int32.TryParse(id, out int i))
+                return -1;
+
+            if (i / 100000 >= 13)
+            {
+                return 13;  //weapons
+            }
+            else
+            {
+                switch (i / 10000)
+                {
+                    case (2):
+                        return 1;  //face                        
+                    case (3):
+                        return 0;  //hair                        
+                    case (100):
+                        return 2;  //hat                       
+                    case (101):
+                    case (102):
+                    case (103):
+                    case (112):
+                    case (113):
+                    case (114):
+                        return 10;  //accessory
+                    case (104):
+                        return 3;  //top  
+                    case (105):
+                        return 5;  //overall     
+                    case (106):
+                        return 4;  //pants  
+                    case (107):
+                        return 6;  //shoes      
+                    case (108):
+                        return 12;  //gloves   
+                    case (109):
+                        return 8; //shield
+                    case (110):
+                        return 7; //cape
+                    case (111):
+                        return 9;  //ring                       
+                    case (180):
+                        return 11;  //pet equip                        
+                    default:
+                        return -1; //unsupported or invalid id
+
+                }
+            }
+
         }
     }
 }
