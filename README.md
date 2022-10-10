@@ -10,10 +10,10 @@ This has been tested only with importing TO v83. It assumes you are importing to
 You will need:
 The Character.wz you want to import to.
 The Character.wz you want to import from.
+The String.wz you want to import to (if you select the include String.wz option)
+The String.wz you want to import from (if you select the include String.wz option)
 
 The program does not modify your original Character.wz. It creates a copy in the output folder.
-
-*I highly suggest you only select one directory to import from at once due to high memory usage.*
 
 This program does not adjust or modify effects that don't work in v83 normally, so some items with effects may not display as they do in later versions due to incompatibility.
 This program converts _inlink and _outlink properties from later versions to UOL properties with parsed paths. It also adjusts any UOL that reference other UOL properties, as this is not supported in v83.
