@@ -345,7 +345,7 @@ namespace WzImporter
                 string name = inLinkNode.Attributes["name"].Value;
                 string link = inLinkNode.SelectSingleNode("string[@name='_inlink']").Attributes["value"].Value;
                 XmlNode myOriginNode = inLinkNode.SelectSingleNode("vector[@name='origin']");
-                XmlNode myZNode = inLinkNode.SelectSingleNode("string[@name='z']");
+                XmlNode myZNode = inLinkNode.SelectSingleNode("*[@name='z']");
                 string myOriginX = "";
                 string myOriginY = "";
                 string myZ = "";
@@ -382,7 +382,7 @@ namespace WzImporter
                     originNode = originNode.SelectSingleNode("vector[@name='origin']");
                 XmlNode zNode = tmpNode.SelectSingleNode(ConvertToXpath(link.Replace("../", "")));
                 if (zNode != null)
-                    zNode = zNode.SelectSingleNode("string[@name='z']");
+                    zNode = zNode.SelectSingleNode("*[@name='z']");
                 if (originNode != null)
                 {
                     outOriginX = originNode.SelectSingleNode("@x").Value;
@@ -408,7 +408,29 @@ namespace WzImporter
                         }
                         if (myZ != outZ)
                         {
-                            refNode.SelectSingleNode("string[@name='z']/@value").Value = myZ;
+                            //some z properties are int. some are string. change depending on the value we need.
+                            if (refNode.SelectSingleNode("*[@name='z']") != null)
+                            {
+                                refNode.SelectSingleNode("*[@name='z']/@value").Value = myZ;
+                                if (!Int32.TryParse(myZ, out _))
+                                {
+                                    XmlNode newZNode = img.CreateElement("string");
+                                    XmlNode oldZNode = refNode.SelectSingleNode("*[@name='z']");
+                                    newZNode.Attributes.Append(img.CreateAttribute("name")).Value = oldZNode.Attributes["name"].Value;
+                                    newZNode.Attributes.Append(img.CreateAttribute("value")).Value = oldZNode.Attributes["value"].Value;
+                                    refNode.InsertAfter(newZNode, oldZNode);
+                                    refNode.RemoveChild(oldZNode);
+                                }
+                                else
+                                {
+                                    XmlNode newZNode = img.CreateElement("int");
+                                    XmlNode oldZNode = refNode.SelectSingleNode("*[@name='z']");
+                                    newZNode.Attributes.Append(img.CreateAttribute("name")).Value = oldZNode.Attributes["name"].Value;
+                                    newZNode.Attributes.Append(img.CreateAttribute("value")).Value = oldZNode.Attributes["value"].Value;
+                                    refNode.InsertAfter(newZNode, oldZNode);
+                                    refNode.RemoveChild(oldZNode);
+                                }
+                            }
                         }
                         inLinkNode.ParentNode.AppendChild(refNode);
                         inLinkNode.ParentNode.RemoveChild(inLinkNode);
@@ -442,7 +464,7 @@ namespace WzImporter
                 string myOriginY = "";
                 string myZ = "";
                 XmlNode myOriginNode = outLinkNode.SelectSingleNode("vector[@name='origin']");
-                XmlNode myZNode = outLinkNode.SelectSingleNode("string[@name='z']");
+                XmlNode myZNode = outLinkNode.SelectSingleNode("*[@name='z']");
                 if (myOriginNode != null)
                 {
                     myOriginX = myOriginNode.SelectSingleNode("@x").Value;
@@ -490,7 +512,7 @@ namespace WzImporter
                     }
                     if (refImage.GetFromPath(linksub)["z"] != null) //if the referenced image doesn't have a z, we assume to keep ours
                     {
-                        outZ = (string)refImage.GetFromPath(linksub)["z"].WzValue;
+                        outZ = refImage.GetFromPath(linksub)["z"].WzValue.ToString();
                     }
 
                     XmlDocument refImageDoc = new XmlDocument();
@@ -515,8 +537,29 @@ namespace WzImporter
                     }
                     if (myZ != outZ)
                     {
-                        if (newNodeFromRef.SelectSingleNode("string[@name='z']/@value") != null)
-                            newNodeFromRef.SelectSingleNode("string[@name='z']/@value").Value = myZ;
+                        if (newNodeFromRef.SelectSingleNode("*[@name='z']/@value") != null)
+                        {
+                            //some z properties are int. some are string. change depending on the value we need.
+                            newNodeFromRef.SelectSingleNode("*[@name='z']/@value").Value = myZ;
+                            if (!Int32.TryParse(myZ, out _))
+                            {
+                                XmlNode newZNode = img.CreateElement("string");
+                                XmlNode oldZNode = newNodeFromRef.SelectSingleNode("*[@name='z']");
+                                newZNode.Attributes.Append(img.CreateAttribute("name")).Value = oldZNode.Attributes["name"].Value;
+                                newZNode.Attributes.Append(img.CreateAttribute("value")).Value = oldZNode.Attributes["value"].Value;
+                                newNodeFromRef.InsertAfter(newZNode, oldZNode);
+                                newNodeFromRef.RemoveChild(oldZNode);
+                            }
+                            else
+                            {
+                                XmlNode newZNode = img.CreateElement("int");
+                                XmlNode oldZNode = newNodeFromRef.SelectSingleNode("*[@name='z']");
+                                newZNode.Attributes.Append(img.CreateAttribute("name")).Value = oldZNode.Attributes["name"].Value;
+                                newZNode.Attributes.Append(img.CreateAttribute("value")).Value = oldZNode.Attributes["value"].Value;
+                                newNodeFromRef.InsertAfter(newZNode, oldZNode);
+                                newNodeFromRef.RemoveChild(oldZNode);
+                            }
+                        }
                     }
 
                     outLinkNode.ParentNode.AppendChild(newNodeFromRef);
@@ -541,7 +584,7 @@ namespace WzImporter
                     }
                     if (refImage.GetFromPath(linksub)["z"] != null)
                     {
-                        outZ = (string)refImage.GetFromPath(linksub)["z"].WzValue;
+                        outZ = refImage.GetFromPath(linksub)["z"].WzValue.ToString();
                     }
 
                     // it's possible for newer versions to ref an image and all they change is the origin (common with weapons)
@@ -567,7 +610,29 @@ namespace WzImporter
                         }
                         if (myZ != outZ)
                         {
-                            newNodeFromRef.SelectSingleNode("string[@name='z']/@value").Value = myZ;
+                            //some z properties are int. some are string. change depending on the value we need.
+                            if (newNodeFromRef.SelectSingleNode("*[@name='z']") != null)
+                            {
+                                newNodeFromRef.SelectSingleNode("*[@name='z']/@value").Value = myZ;
+                                if (!Int32.TryParse(myZ, out _))
+                                {
+                                    XmlNode newZNode = img.CreateElement("string");
+                                    XmlNode oldZNode = newNodeFromRef.SelectSingleNode("*[@name='z']");
+                                    newZNode.Attributes.Append(img.CreateAttribute("name")).Value = oldZNode.Attributes["name"].Value;
+                                    newZNode.Attributes.Append(img.CreateAttribute("value")).Value = oldZNode.Attributes["value"].Value;
+                                    newNodeFromRef.InsertAfter(newZNode, oldZNode);
+                                    newNodeFromRef.RemoveChild(oldZNode);
+                                }
+                                else
+                                {
+                                    XmlNode newZNode = img.CreateElement("int");
+                                    XmlNode oldZNode = newNodeFromRef.SelectSingleNode("*[@name='z']");
+                                    newZNode.Attributes.Append(img.CreateAttribute("name")).Value = oldZNode.Attributes["name"].Value;
+                                    newZNode.Attributes.Append(img.CreateAttribute("value")).Value = oldZNode.Attributes["value"].Value;
+                                    newNodeFromRef.InsertAfter(newZNode, oldZNode);
+                                    newNodeFromRef.RemoveChild(oldZNode);
+                                }
+                            }
                         }
                         outLinkNode.ParentNode.AppendChild(newNodeFromRef);
                         outLinkNode.ParentNode.RemoveChild(outLinkNode);
