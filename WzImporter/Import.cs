@@ -35,7 +35,7 @@ namespace WzImporter
         private WzFile import_to_StringWz;
         private string prevTmpFileName = "";
 
-        public void ImportXML(Form1 form)
+        public void ImportXML(MainForm form)
         {
             try
             {
